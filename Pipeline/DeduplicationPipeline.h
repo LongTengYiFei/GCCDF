@@ -293,6 +293,7 @@ private:
         // static std::unordered_set<uint64_t> unique_chunks;
 
         for (auto &entry: wl) {
+            chunkCounter++;
             WriteTask writeTask;
             memset(&writeTask, 0, sizeof(WriteTask));
             writeTask.eoi = entry.eoi;
@@ -412,6 +413,8 @@ private:
                 duration = 0;
                 GlobalWriteFilePipelinePtr->addTask(writeTask);
                 printf("dedup done\n");
+                GlobalMetadataManagerPtr->addChunkNumber(entry.fileID, chunkCounter);
+                chunkCounter = 0;
                 entry.countdownLatch->countDown();
             } else {
                 if (currentLength >= ContainerSize) {
@@ -451,6 +454,7 @@ private:
     uint64_t currentLength = 0;
 
     uint64_t denyDedup = 0;
+    uint64_t chunkCounter = 0;
 
     std::unordered_set<SHA1FP, TupleHasher, TupleEqualer> ContainerTable;
 };

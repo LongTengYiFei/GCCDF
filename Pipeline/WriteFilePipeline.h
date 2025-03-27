@@ -136,6 +136,13 @@ private:
                         if (logicFileOperator.find(writeTask.fileID) == logicFileOperator.end()) {
                             sprintf(buffer, LogicFilePath.c_str(), writeTask.fileID);
                             logicFileOperator[writeTask.fileID] = new FileOperator(buffer, FileOpenType::Write);
+
+                            bloom_parameters parameters;
+                            parameters.projected_element_count = GlobalMetadataManagerPtr->getChunkNumber(writeTask.fileID);
+                            parameters.false_positive_probability = 0.01;
+                            parameters.compute_optimal_parameters();
+                            bloom_filter* nbf = new bloom_filter(parameters);
+                            currentBF[writeTask.fileID] = nbf;
                         }
 
                         logicFileOperator[writeTask.fileID]->write((uint8_t *) &writeHead, sizeof(WriteHead));
@@ -191,10 +198,17 @@ private:
                         if (logicFileOperator.find(writeTask.fileID) == logicFileOperator.end()) {
                             sprintf(buffer, LogicFilePath.c_str(), writeTask.fileID);
                             logicFileOperator[writeTask.fileID] = new FileOperator(buffer, FileOpenType::Write);
+                            bloom_parameters parameters;
+                            parameters.projected_element_count = GlobalMetadataManagerPtr->getChunkNumber(writeTask.fileID);
+                            parameters.false_positive_probability = 0.01;
+                            parameters.compute_optimal_parameters();
+                            bloom_filter* nbf = new bloom_filter(parameters);
+                            currentBF[writeTask.fileID] = nbf;
                         }
 
                         logicFileOperator[writeTask.fileID]->write((uint8_t *) &writeHead, sizeof(WriteHead));
                         logicFileOperator[writeTask.fileID]->write((uint8_t *) &location, sizeof(Location));
+                        currentBF[writeTask.fileID]->insert(writeHead.id);
 
                         leftSize += writeTask.bufferLength;
 
@@ -265,6 +279,7 @@ private:
     }
 
     std::unordered_map<uint64_t, FileOperator*> logicFileOperator;
+    std::unordered_map<uint64_t, bloom_filter*> currentBF;
     FileOperator *chunkFileOperator;
     char buffer[256];
     uint64_t fid;

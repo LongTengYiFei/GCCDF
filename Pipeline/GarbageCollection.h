@@ -518,15 +518,19 @@ private:
         printf("%lu files involved in total\n", this->involvedChunks.size());
         if(FLAGS_MergingOrder){
             for (auto kv_iter = this->involvedChunks.rbegin(); kv_iter != this->involvedChunks.rend(); kv_iter++){
+                bloom_filter* currentBF = GlobalMetadataManagerPtr->getBloomFilter(kv_iter->first);
                 //printf("Scan Chunks in some file..\n");
                 if(onceSymbol) fileRecorder[kv_iter->first]++;
                 chunks_to_add.clear();
                 chunks_to_update.clear();
-                for (const auto& chunk_id : kv_iter->second) {
-                    if(lc_tree.checkExisting(chunk_id)){
-                        chunks_to_update.push_back(chunk_id);
-                    }else{
-                        chunks_to_add.push_back(chunk_id);
+                Node* node = lc_tree.getHead();
+                for(auto& item: node->getItems()){
+                    if(currentBF->contains(item)){
+                        if(lc_tree.checkExisting(item)){
+                            chunks_to_update.push_back(item);
+                        }else{
+                            chunks_to_add.push_back(item);
+                        }
                     }
                 }
                 //printf("Update tree..\n");

@@ -23,6 +23,7 @@
 #include <optional>
 #include <utility>
 #include <sys/time.h>
+#include "BloomFilter.h"
 
 extern const int ContainerSize;
 extern std::string LogicFilePath;
@@ -1107,6 +1108,24 @@ public:
 //    ScalableChunkLifeCycle SChunkLifeCycle;
     const bool GRAY_ENCODING;
 
+    int addBloomFilter(int n, bloom_filter* bf) {
+        bloom_filters[n] = bf;
+        return 0;
+    }
+
+    bloom_filter* getBloomFilter(int n) {
+        return bloom_filters[n];
+    }
+
+    int getChunkNumber(int n) {
+        return chunkNumbers[n];
+    }
+
+    int addChunkNumber(int n, int num) {
+        chunkNumbers[n] = num;
+        return 0;
+    }
+
 private:
     std::unordered_map<SHA1FP, std::map<uint64_t, uint64_t>, TupleHasher, TupleEqualer> table;
     std::unordered_map<uint64_t, std::unordered_map<uint64_t, std::pair<uint64_t,uint64_t>>> gctable; // SHA1FP -> oldCID -> <newCID, ID>
@@ -1117,6 +1136,8 @@ private:
     const SHA1FP DEBUG_SHA1FP = {.fp1 = 15844408918433038934llu, .fp2 = 854042722u, .fp3 = 1615005289u, .fp4 = 3183670265u};
     const uint64_t DEBUG_ID = 73842;
     const uint64_t DEBUG_CID = 1436;
+    std::map<int, bloom_filter*> bloom_filters;
+    std::map<int, int> chunkNumbers;
 };
 
 static MetadataManager *GlobalMetadataManagerPtr;
