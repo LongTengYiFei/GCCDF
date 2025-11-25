@@ -17,8 +17,8 @@ DEFINE_string(RestorePath, "", "restore path");
 DEFINE_string(task, "", "task type");
 DEFINE_string(BatchFilePath, "", "batch process file path");
 DEFINE_int32(RecipeID, 0, "recipe id");
-DEFINE_int32(DeletePercentage, 30, "deletion percentage");
-DEFINE_int32(GCInterval, 4, "frequency of garbage collection");
+DEFINE_int32(DeletePercentage, 20, "deletion percentage"); // 好像没啥用
+DEFINE_int32(GCInterval, 1, "frequency of garbage collection"); // 触发GC的interval
 DEFINE_int32(GCThreshold, 0, "gc percentage");
 DEFINE_bool(GrayEncoding, false, "whether gray encoding is enabled");
 DEFINE_bool(Random, false, "whether classification is random in ABT");
@@ -249,6 +249,7 @@ int main(int argc, char **argv) {
                 // print_elapsed();
                 std::cout << "GC start" << std::endl;
                 exec_gc(counter + 1 - GC_INTERVAL, counter);
+                //exec_gc(1 + GC_INTERVAL, counter);
                 // print_elapsed();
                 std::cout << "GC end" << std::endl;
             }

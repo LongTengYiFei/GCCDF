@@ -91,7 +91,7 @@ public:
 
         int invalid = 0, processed = 0, skipped = 0;
 
-        int count = 0;
+        int count = 0; // total valid chunk size
 
         auto itr = involvedContainerTable.begin();
         while (itr != involvedContainerTable.end()) {
@@ -121,6 +121,7 @@ public:
             int r = checkThreshold(buffer, size, cid, threshold, path);
             switch (r) {
                 case 2:
+                    // 该container 没有valid chunk；
                     processingInvalid(buffer, size, cid, path);
                     if (FLAGS_LCbasedGC)
                         involvedContainerTable.erase(itr++);
@@ -128,24 +129,34 @@ public:
                         ++itr;
                     ++invalid;
                     break;
+
                 case 1:
+                    // 该container 部分invalid，部分valid；
+                    // 返回valid size
+                    // 将valid chunk存入GC cache；
                     if (FLAGS_LCbasedGC) {
                         int vsize = processingContainer(buffer, size, cid);
                         count += vsize;
-                    }
-                    else
+                    }else{
                         processingContainerSeq(buffer, size, cid, path);
+                    }
+                        
                     ++itr;
                     ++processed;
                     break;
+
                 case 0:
+                    // 似乎是没有invalid chunk，所以跳过该container；
                     //identifyInvalid(buffer, size, cid);
                     involvedContainerTable.erase(itr++);
                     ++skipped;
                     // skip
                     break;
             }
+
             free(buffer);
+
+            // 累计迁移，每积攒limit个容器就迁移；
             if (FLAGS_LCbasedGC && count >= (FLAGS_CachingLimit * 4 * 1024 * 1024)) {
                 printf("GC::cached %d containers\n", count);
                 if (!migrateFile) {
@@ -160,6 +171,8 @@ public:
                 migratedChunks.clear();
             }
         }
+        
+        // 迁移剩下的；
         if(FLAGS_LCbasedGC && count > 0){
             printf("GC::cached %d bytes\n", count);
             if (!migrateFile) {
@@ -175,6 +188,8 @@ public:
         }
 
         printf("Size of unique chunks before GC: %lu\n", GlobalDeduplicatedSize);
+
+        // 已经迁移完了，删掉原来的容器；
         if (FLAGS_LCbasedGC) {
             assert(processed == this->involvedContainerTable.size());
             printf("GC containers -- invalid: %d, to be processed: %d, skipped: %d\n", invalid, processed, skipped);
@@ -183,13 +198,13 @@ public:
                 sprintf(path, ChunkFilePath.data(), cid);
                 remove(path);
                 GlobalMetadataManagerPtr->removeAvailableContainer(cid);
-                if (FLAGS_RewritingMethod == std::string("har")) {
-                    GlobalDeduplicationPipelinePtr->har_manager.deleteRecord(cid);
-                }
+                // if (FLAGS_RewritingMethod == std::string("har")) {
+                //     GlobalDeduplicationPipelinePtr->har_manager.deleteRecord(cid);
+                // }
             }
-            if (FLAGS_RewritingMethod == std::string("har")) {
-                GlobalDeduplicationPipelinePtr->har_manager.update();
-            }
+            // if (FLAGS_RewritingMethod == std::string("har")) {
+            //     GlobalDeduplicationPipelinePtr->har_manager.update();
+            // }
             this->involvedContainerTable.clear();
         }
 
@@ -312,6 +327,8 @@ private:
         assert(pos == size);
 
         directDelete++;
+
+        // 直接移除容器文件；
         remove(path);
 
         // GlobalMetadataManagerPtr->deleteContainerLC(cid);
@@ -368,24 +385,29 @@ private:
             auto iter = recordTable.find(headPtr->id);
             auto fid_set = GlobalMetadataManagerPtr->findRecordSet(headPtr->sha1Fp);
             if (iter != recordTable.end()) {
+                // valid chunk
                 assert(headPtr->type == 0);
                 ChunkStart chunk_start;
                 chunk_start.cid = cid;
                 chunk_start.offset = pos;
                 auto itr = this->chunkFile.find(headPtr->id);
                 assert(itr != this->chunkFile.end());
+                // 需要迁移的chunks id
                 for(auto item: itr->second){
                     this->involvedChunks[item].insert(headPtr->id);
                 }
                 this->chunkLocation[headPtr->id] = chunk_start;
                 // migrateChunk(buffer + pos, headPtr->length, headPtr->sha1Fp, cid);
                 validSize += headPtr->length - sizeof(BlockHead);
+                // valid chunk 放入 GC cache；
                 gc_cache.put(headPtr->id, headPtr->sha1Fp, buffer + pos, headPtr->length, chunk_start);
-            }
-            else if (fid_set.find(cid) != fid_set.end()) {
+            
+            }else if (fid_set.find(cid) != fid_set.end()) {
+                // invalid 
                 GlobalMetadataManagerPtr->removeRecord(headPtr->sha1Fp, cid);
                 GlobalDeduplicatedSize -= headPtr->length - sizeof(BlockHead);
             }
+
             pos += headPtr->length;
         }
         assert(pos == size);
@@ -424,8 +446,9 @@ private:
             ::fid_created_during_gc.insert(currentCid);
             // write container
             struct timeval t2, t3;
-            //migrateFile->fsync();
-            //migrateFile->releaseBufferedData();
+            migrateFile->fsync();
+            // 因为已经调用了fsync，所以这里直接释放page cache；
+            migrateFile->releaseBufferedData();
             GlobalMetadataManagerPtr->addAvailableContainer(currentCid);
             delete migrateFile;
             migrateFile = nullptr;
@@ -434,6 +457,8 @@ private:
             // LCTotalAfter += GlobalMetadataManagerPtr->getLifecycle(currentCid).size();
             CCountAfter++;
         }
+
+        // 似乎是新建一个迁移目标文件
         char path[512];
         currentCid = GlobalDeduplicationPipelinePtr->getFid();
         sprintf(path, ChunkFilePath.data(), currentCid);
@@ -479,7 +504,7 @@ private:
         auto iter = GCContainerTable.find(sha1Fp);
         if (iter != GCContainerTable.end()) {
             GlobalMetadataManagerPtr->insertGCTable(sha1Fp, old_cid, currentCid, id, iter->second);
-//            GlobalMetadataManagerPtr->insertGCTable(sha1Fp, old_cid, currentCid, iter->second);
+            //GlobalMetadataManagerPtr->insertGCTable(sha1Fp, old_cid, currentCid, iter->second);
             GlobalMetadataManagerPtr->checkMigrateRecord(sha1Fp, old_cid, currentCid, iter->second);
             // this->mergedIDs.insert(id);
             // this->mergedIDs.insert(iter->second);
@@ -489,7 +514,7 @@ private:
             return;
         }
 
-        // write container
+        // write this chunk to migrate destination container
         struct timeval t2, t3;
         gettimeofday(&t2, NULL);
 
@@ -504,9 +529,9 @@ private:
         GlobalMetadataManagerPtr->updateRecord(sha1Fp, old_cid, currentCid, id);
         GCContainerTable.insert(std::make_pair(sha1Fp, id));
         this->totalMigrationSize += length - sizeof(BlockHead);
-        if (FLAGS_RewritingMethod == std::string("har")) {
-            GlobalDeduplicationPipelinePtr->har_manager.addRecord(currentCid, length);
-        }
+        // if (FLAGS_RewritingMethod == std::string("har")) {
+        //     GlobalDeduplicationPipelinePtr->har_manager.addRecord(currentCid, length);
+        // }
     }
 
     void migrateGrouped() {
@@ -516,30 +541,33 @@ private:
         ScalableChunkLifeCycleNew lc_tree;
         std::vector<uint64_t> chunks_to_add, chunks_to_update;
         printf("%lu files involved in total\n", this->involvedChunks.size());
-        if(FLAGS_MergingOrder){
+        // if(FLAGS_MergingOrder){
+        //     for (auto kv_iter = this->involvedChunks.rbegin(); kv_iter != this->involvedChunks.rend(); kv_iter++){
+        //         uint64_t file_id = kv_iter->first;
+        //         bloom_filter* currentBF = GlobalMetadataManagerPtr->getBloomFilter(file_id);
+                
+        //         if(onceSymbol) 
+        //             fileRecorder[kv_iter->first]++;
+
+        //         chunks_to_add.clear();
+        //         chunks_to_update.clear();
+        //         Node* node = lc_tree.getHead();
+        //         for(auto& item: node->getItems()){
+        //             if(currentBF->contains(item)){
+        //                 if(lc_tree.checkExisting(item)){
+        //                     chunks_to_update.push_back(item);
+        //                 }else{
+        //                     chunks_to_add.push_back(item);
+        //                 }
+        //             }
+        //         }
+        //         //printf("Update tree..\n");
+        //         //printf("add num:%lu, update num:%lu\n", chunks_to_add.size(), chunks_to_update.size());
+        //         lc_tree.ingest_new_version(chunks_to_add, chunks_to_update);
+        //     }
+        // }
+        //else{
             for (auto kv_iter = this->involvedChunks.rbegin(); kv_iter != this->involvedChunks.rend(); kv_iter++){
-                bloom_filter* currentBF = GlobalMetadataManagerPtr->getBloomFilter(kv_iter->first);
-                //printf("Scan Chunks in some file..\n");
-                if(onceSymbol) fileRecorder[kv_iter->first]++;
-                chunks_to_add.clear();
-                chunks_to_update.clear();
-                Node* node = lc_tree.getHead();
-                for(auto& item: node->getItems()){
-                    if(currentBF->contains(item)){
-                        if(lc_tree.checkExisting(item)){
-                            chunks_to_update.push_back(item);
-                        }else{
-                            chunks_to_add.push_back(item);
-                        }
-                    }
-                }
-                //printf("Update tree..\n");
-                //printf("add num:%lu, update num:%lu\n", chunks_to_add.size(), chunks_to_update.size());
-                lc_tree.ingest_new_version(chunks_to_add, chunks_to_update);
-            }
-        }
-        else{
-            for (auto kv_iter = this->involvedChunks.begin(); kv_iter != this->involvedChunks.end(); kv_iter++){
                 //printf("Scan Chunks in some file..\n");
                 if(onceSymbol) fileRecorder[kv_iter->first]++;
                 chunks_to_add.clear();
@@ -555,7 +583,7 @@ private:
                 //printf("add num:%lu, update num:%lu\n", chunks_to_add.size(), chunks_to_update.size());
                 lc_tree.ingest_new_version(chunks_to_add, chunks_to_update);
             }
-        }
+        //}
         if(onceSymbol){
             for(auto item: fileRecorder){
                 printf("[fileRecorder] #%lu file: %lu\n", item.first, item.second);
@@ -564,13 +592,18 @@ private:
         printf("[LeafNode] num:%d\n", lc_tree.getLeafNodeCount());
         gettimeofday(&ttable1, NULL);
         totalTableTime += (ttable1.tv_sec - ttable0.tv_sec) * 1000000 + (ttable1.tv_usec - ttable0.tv_usec);
-
+        
+        // 树已经构建完了，开始根据树迁移；
         gettimeofday(&twrite0, NULL);
         if(FLAGS_MergingOrder){
+            // 从尾向头
             auto tr_ptr = lc_tree.getTail();
             while(tr_ptr != lc_tree.getHead()){
+                // 遍历这个节点所有chunk id，一个节点是一个cluster；
+                // 但问题是，多少个cluster聚集成一个新container呢？
                 for(auto item: tr_ptr->getItems()){
-                    if(migratedChunks.find(item) != migratedChunks.end()) continue;
+                    if(migratedChunks.find(item) != migratedChunks.end()) 
+                        continue;
                     node_type nd;
                     ChunkStart& temp = this->chunkLocation[item];
                     bool find = this->gc_cache.lookup(temp, nd);
@@ -599,9 +632,9 @@ private:
                 }
             }
         }
-
         gettimeofday(&twrite1, NULL);
-        if(migrateFile != nullptr) migrateFile->fsync();
+        if(migrateFile != nullptr) 
+            migrateFile->fsync();
         totalWriteTime += (twrite1.tv_sec - twrite0.tv_sec) * 1000000 + (twrite1.tv_usec - twrite0.tv_usec);
     }
 
@@ -657,15 +690,21 @@ private:
     }
 
     // build record table and update obt
+    /*
+        dbv (delete backup vector)
+        v_start 实际上未被使用
+        v_end 定义了处理的备份版本范围上限
+        LogicFilePath：是一个格式化字符串，用来构造每个recipe文件的路径；
+        recordTable：chunk id集合
+        chunkFile：chunk id to files id
+        involvedContainerTable：被删除的文件，引用了哪些container
+    */
     void buildRecordTable(const std::set<int> &dbv, int v_start, int v_end) {
         char path[512];
         std::set<int> &availBackups = GlobalMetadataManagerPtr->getBackups();
         for (int i = 0; i <= v_end; ++i) {
             if (availBackups.find(i) == availBackups.end())
                 continue;
-            std::vector<uint64_t> chunks_to_add{}, chunks_to_update{};
-            std::vector<uint64_t> chunks_size{};
-            std::unordered_set<uint64_t> unique_chunks;
             sprintf(path, LogicFilePath.data(), i);
             FileOperator recipe(path, FileOpenType::Read);
             uint64_t size = recipe.getSize();
@@ -679,6 +718,12 @@ private:
                 Location &loc = recipeUnit[j].location;
                 assert(wh.type == 0);
                 if (dbv.find(i) == dbv.end()) {
+                    /*
+                        如果这个备份版本没有被删除，
+                        记录chunk id
+                        记录这个chunk id被哪个版本引用
+                    */
+                    
                     recordTable.insert(wh.id);
                     this->chunkFile[wh.id].insert(i);
                 }
@@ -686,6 +731,7 @@ private:
 
             free(buffer);
         }
+
         for (int i : dbv) {
             sprintf(path, LogicFilePath.data(), i);
             FileOperator recipe(path, FileOpenType::Read);
@@ -709,7 +755,10 @@ private:
     std::unordered_set<uint64_t> recordTable;
     std::set<uint64_t> involvedContainerTable;
     std::unordered_map<uint64_t, std::set<uint64_t>> chunkFile; // Chunk ID -> File ID
+
+    // 这个实际上是需要GC容器里的valid chunks，命名为involve感觉不太合适；
     std::map<uint64_t, std::set<uint64_t>> involvedChunks; // FileID -> chunks
+    // 需要GC的chunk的location；
     std::unordered_map<uint64_t, ChunkStart> chunkLocation;
 
     uint64_t totalReadIO = 0;

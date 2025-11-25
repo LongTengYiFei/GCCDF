@@ -10,9 +10,8 @@
 #include "../Utility/FileOperator.h"
 
 uint64_t WriteDuration = 0;
-
-DEFINE_string(ChunkFilePath, "/mnt/ssd-r/OdessHome/chunkFiles/%lu", "chunk path");
-DEFINE_string(LogicFilePath, "/mnt/ssd-1/OdessHome/logicFiles/%lu", "logic path");
+DEFINE_string(ChunkFilePath, "/home/cyf/ssd1/gc_work/chunks/container%lu", "chunk path");
+DEFINE_string(LogicFilePath, "/home/cyf/ssd1/gc_work/recipes/recipe%lu", "logic path");
 DEFINE_int32(ContainerSize, 4, "Unit:MB");
 
 std::string LogicFilePath = FLAGS_LogicFilePath;

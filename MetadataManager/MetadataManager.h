@@ -52,7 +52,7 @@ struct Node {
     Node* right;  // 右子节点
     Node* prev;   // 双向链表中的前一个叶子节点
     Node* next;   // 双向链表中的后一个叶子节点
-    std::unordered_set<uint64_t> items;  // 节点中的列表，包含多个Item
+    std::unordered_set<uint64_t> items;  // 节点中的列表，包含多个Item，cluster；
 
     // 返回该节点的所有items
     std::unordered_set<uint64_t> getItems() const {
